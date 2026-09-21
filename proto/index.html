@@ -128,7 +128,12 @@ window.__demoReset=false; // resetDemo 置位：阻止 beforeunload/interval 把
    尾部的 9 条 hostEarn seed 行（hostV:3）与 5 条 seedTenant 行约 2 秒即被全部挤出；
    守卫发现无 hostV:3 行又重新注入 → "刷新出现→消失"循环。
    修复：seed 行豁免窗口裁剪（原地保序），普通行最老先裁；seed 行上限固定 14 条，总长有界 56。 */
-const trimLedger=(a,cap=42)=>{ a=[...a]; let rest=a.filter(e=>!(e.hostV===3||e.seedTenant)).length; while(rest>cap){ const i=a.findLastIndex(e=>!(e.hostV===3||e.seedTenant)); if(i<0) break; a.splice(i,1); rest--; } return a; };
+const trimLedger=(a,cap=300)=>{ a=[...a]; let rest=a.filter(e=>!(e.hostV===3||e.seedTenant)).length; while(rest>cap){ const i=a.findLastIndex(e=>!(e.hostV===3||e.seedTenant)); if(i<0) break; a.splice(i,1); rest--; } return a; };
+/* 结案归档快照（2026-09-21 · 历史花销承载修正版）：实例销毁/到期/退房/违约时压缩一条结论性记录，
+   供 Billing「已结案实例」按单查询（历史订单维度）。边界：不参与对账（Σ流水=Δ余额 只认 ledger），
+   不进计费引擎任何遍历路径；cap=50 防满档（localStorage 容量纪律），头部最新；reason 存 code，渲染时映射 i18n。 */
+const ARCHIVE_CAP=50;
+const pushArchive=(arr,snap)=>[snap,...(arr||[])].slice(0,ARCHIVE_CAP);
 /* ================= 模拟账号库（注册/登录 · 2026-09-11） ================= */
 // ⚠️ 演示取舍：账号与密码【明文】存 localStorage，仅作原型演示，不得沿用至正式产品（正式产品：服务端存储 + 密码哈希 + 会话令牌）
 const ACCOUNTS_KEY="gpu-market-accounts-v1";
@@ -273,7 +278,9 @@ cfContract:"合约类型",cfContractNote:"创建后不可互转（docs：转换�
  blBalTitle:"当前余额",blBalAvail:"可用余额",blBalFrozen:"冻结托管",blBalTotal:"可用 + 冻结",
  blBalFrozenBreak:(a,b)=>`按量预留 ${a} · 订单冻结 ${b}`,
  blBalTotalNote:"可退款总额；订单提前取消按规则扣除罚金",
- blMixTitle:"累计消费构成（三组件计费）",blMixGpu:"GPU 算力",blMixSto:"存储",blMixBw:"带宽",
+  blMixTitle:"累计消费构成（三组件计费）",blMixGpu:"GPU 算力",blMixSto:"存储",blMixBw:"带宽",
+  blArchTitle:"已结案实例",blArchNone:"暂无结案记录",blArchPeriod:"时段",blArchSpent:"已花费",blArchRefund:"结案退款",blArchReason:"结案原因",
+  arReasonDestroy:"主动销毁",arReasonForce:"平台强制销毁",arReasonExpire:"租期到期 · 免罚金",arReasonEarly:"提前退房 · 含罚金",arReasonBreach:"宿主违约 · 强制退房",arReasonResvCancel:"预订取消 · 全款退",
    blMixGpuDesc:"按量按秒计费；订单为预付款摊销（整机口径）",blMixStoDesc:"实例存在且非 offline 即计费，停止后仍计费",blMixBwDesc:"实例运行期按实际流量计费（按量 SKU）",
  blTxTitle:"交易流水",blTabCharges:"扣费",blTxSplit:"预付款分摊",
 blThTime:"时间",blThItem:"说明",blThAmt:"金额",blThBal:"余额",blThId:"流水号",
@@ -517,7 +524,9 @@ cfContract:"Contract type",cfContractNote:"Non-interchangeable after creation (d
  blBalTitle:"Current balance",blBalAvail:"Available",blBalFrozen:"In escrow",blBalTotal:"Available + escrow",
  blBalFrozenBreak:(a,b)=>`On-demand hold ${a} · Order holds ${b}`,
  blBalTotalNote:"Total refundable; early order cancellation deducts a fee per the rules",
- blMixTitle:"Cumulative spend breakdown (three-component billing)",blMixGpu:"GPU compute",blMixSto:"Storage",blMixBw:"Bandwidth",
+  blMixTitle:"Cumulative spend breakdown (three-component billing)",blMixGpu:"GPU compute",blMixSto:"Storage",blMixBw:"Bandwidth",
+  blArchTitle:"Closed instances",blArchNone:"No closed instances yet",blArchPeriod:"Period",blArchSpent:"Spent",blArchRefund:"Closed refund",blArchReason:"Closure",
+  arReasonDestroy:"Destroyed by user",arReasonForce:"Force-destroyed by platform",arReasonExpire:"Lease expired · no penalty",arReasonEarly:"Early return · penalty applied",arReasonBreach:"Host breach · released",arReasonResvCancel:"Reservation cancelled · full refund",
   blMixGpuDesc:"On-demand billed per-second; orders amortized from prepayment (whole-machine basis)",blMixStoDesc:"Billed while instance exists and not offline; continues after stop",blMixBwDesc:"Billed by actual traffic while running (on-demand SKU)",
  blTxTitle:"Transaction history",blTabCharges:"Charges",blTxSplit:"prepay split",
 blThTime:"Time",blThItem:"Description",blThAmt:"Amount",blThBal:"Balance",blThId:"Txn ID",
@@ -775,7 +784,7 @@ lang:_initLang,
      storeChargeTransition:true,
     },
    };
-   if(_sv){ ["balance","simT","timeScale","instances","ledger","filters","sort","selectedTemplate","injectedParams","authed","accepted","endUseAsked","hostAgreed","perspective","view","hostMachines","hostEarnings","escrow","payouts","payoutReqs","endUseTrail","bookings","user"].forEach(k=>{ if(_sv[k]!==undefined) base[k]=_sv[k]; });
+   if(_sv){ ["balance","simT","timeScale","instances","ledger","filters","sort","selectedTemplate","injectedParams","authed","accepted","endUseAsked","hostAgreed","perspective","view","hostMachines","hostEarnings","escrow","payouts","payoutReqs","endUseTrail","bookings","user","instArchive"].forEach(k=>{ if(_sv[k]!==undefined) base[k]=_sv[k]; });
     // 出金通道迁移（2026-09-18）：payout 单通道 → payouts 多通道数组；老存档兜底
     if(_sv.payout && !Array.isArray(base.payouts)){
       const _old=_sv.payout||{channel:null,email:""};
@@ -988,6 +997,7 @@ else if(it.stuck && !it.stuckHint && n.simT>=it.hintAt){ it.stuckHint=true; }
     if(n.instances.some(x=>x.__expire)){
      n.instances.filter(x=>x.__expire).forEach(it=>{
       const _ref=+(it.escrowHold||0).toFixed(4);
+      n.instArchive=pushArchive(n.instArchive,{shortId:it.shortId,gpu:it.offer?.gpu,sku:it.contractType,t0:it.createdAt,t1:n.simT,spent:it.amortized||0,reason:"expire",amt:_ref>0.0001?_ref:0});
       if(_ref>0.0001){ n.balance=+(n.balance+_ref).toFixed(4); flush.push({t:n.simT,msgKey:"lgRefund",sid:it.shortId,gpu:it.offer?.gpu,amt:_ref,txnId:txid(),balAfter:n.balance}); }
       flush.push({t:n.simT,msgKey:"evOrderExpire",id:it.shortId,amt:null});
      });
@@ -997,6 +1007,7 @@ else if(it.stuck && !it.stuckHint && n.simT>=it.hintAt){ it.stuckHint=true; }
     if(n.instances.some(x=>x.__breach)){
      n.instances.filter(x=>x.__breach).forEach(it=>{
       const _ref=+(it.escrowHold||0).toFixed(4); // escrowHold=未摊销余款（已摊销部分已入宿主收益=已赚保留）
+      n.instArchive=pushArchive(n.instArchive,{shortId:it.shortId,gpu:it.offer?.gpu,sku:it.contractType,t0:it.createdAt,t1:n.simT,spent:it.amortized||0,reason:"breach",amt:_ref>0.0001?_ref:0});
       if(_ref>0.0001){ n.balance=+(n.balance+_ref).toFixed(4); flush.push({t:n.simT,msgKey:"lgRefund",sid:it.shortId,gpu:it.offer?.gpu,amt:_ref,txnId:txid(),balAfter:n.balance}); }
       flush.push({t:n.simT,msgKey:"evBreach",id:it.shortId,amt:null});
       const _oid=String(it.offer?.id||"");
@@ -1249,18 +1260,18 @@ pickTemplate:(tpl)=>{ // 模板仅注入实例配置（评审 P3）；选模板�
    destroyInst:(key,reason="user")=>{ // reason：user=租户主动（订单=提前退房，未摊销×15% 罚金）；platform=Admin 强停（=平台强退语义，全额退免罚金 §7.4，toast 由 Admin 事件方负责）
      const st=ref.current; const it=st.instances.find(x=>x.key===key); if(!it) return;
      const ct=it.contractType||"ondemand";
-     if(ct==="ondemand"){ // 按量：现状路径（全局 escrow 释放）
-       setS(p=>({...p,instances:p.instances.filter(x=>x.key!==key),escrow:Math.max(0,+(p.escrow-(it.offer?.dph||0)).toFixed(3))})); return; }
-     const hold=it.escrowHold||0;
-     if(ct==="reserved" && it.status==="Reserved"){ // 仅「到点前取消」全款退（§7.7）；已开机的预定单退房走订单罚金逻辑（§7.4）
-       setS(p=>{ const nb=+(p.balance+hold).toFixed(4); return {...p,instances:p.instances.filter(x=>x.key!==key),balance:nb,ledger:trimLedger([{t:p.simT,msgKey:"lgRefund",sid:it.shortId,gpu:it.offer?.gpu,amt:hold,txnId:txid(),balAfter:nb},...p.ledger])}; });
-       act.toast(T.tReserveCancel(hold.toFixed(2))); return; }
-     // 订单退房（§7.4）：escrowHold 余款=未摊销；罚金只按原因驱动，不按入口驱动
-     const refund = reason==="platform"? hold : +(hold*0.85).toFixed(4);
-     const penalty = +(hold-refund).toFixed(4);
-     const evs=[{t:st.simT,msgKey:"lgRefund",sid:it.shortId,gpu:it.offer?.gpu,amt:refund,txnId:txid()}];
-     if(penalty>0.0001) evs.push({t:st.simT,msgKey:"lgPenalty",sid:it.shortId,gpu:it.offer?.gpu,amt:penalty,txnId:txid()});
-     setS(p=>{ const nb=+(p.balance+refund).toFixed(4); return {...p,instances:p.instances.filter(x=>x.key!==key),balance:nb,ledger:trimLedger([...evs.map(e=>({...e,balAfter:nb})),...p.ledger])}; });
+      if(ct==="ondemand"){ // 按量：现状路径（全局 escrow 释放）
+        setS(p=>({...p,instances:p.instances.filter(x=>x.key!==key),escrow:Math.max(0,+(p.escrow-(it.offer?.dph||0)).toFixed(3)),instArchive:pushArchive(p.instArchive,{shortId:it.shortId,gpu:it.offer?.gpu,sku:"ondemand",t0:it.createdAt,t1:st.simT,spent:it.spentTotal||0,reason:reason==="platform"?"force-destroy":"destroy",amt:0})})); return; }
+      const hold=it.escrowHold||0;
+      if(ct==="reserved" && it.status==="Reserved"){ // 仅「到点前取消」全款退（§7.7）；已开机的预定单退房走订单罚金逻辑（§7.4）
+        setS(p=>{ const nb=+(p.balance+hold).toFixed(4); return {...p,instances:p.instances.filter(x=>x.key!==key),balance:nb,instArchive:pushArchive(p.instArchive,{shortId:it.shortId,gpu:it.offer?.gpu,sku:"reserved",t0:it.createdAt,t1:p.simT,spent:0,reason:"resv-cancel",amt:hold}),ledger:trimLedger([{t:p.simT,msgKey:"lgRefund",sid:it.shortId,gpu:it.offer?.gpu,amt:hold,txnId:txid(),balAfter:nb},...p.ledger])}; });
+        act.toast(T.tReserveCancel(hold.toFixed(2))); return; }
+      // 订单退房（§7.4）：escrowHold 余款=未摊销；罚金只按原因驱动，不按入口驱动
+      const refund = reason==="platform"? hold : +(hold*0.85).toFixed(4);
+      const penalty = +(hold-refund).toFixed(4);
+      const evs=[{t:st.simT,msgKey:"lgRefund",sid:it.shortId,gpu:it.offer?.gpu,amt:refund,txnId:txid()}];
+      if(penalty>0.0001) evs.push({t:st.simT,msgKey:"lgPenalty",sid:it.shortId,gpu:it.offer?.gpu,amt:penalty,txnId:txid()});
+      setS(p=>{ const nb=+(p.balance+refund).toFixed(4); return {...p,instances:p.instances.filter(x=>x.key!==key),balance:nb,instArchive:pushArchive(p.instArchive,{shortId:it.shortId,gpu:it.offer?.gpu,sku:ct,t0:it.createdAt,t1:p.simT,spent:it.amortized||0,reason:reason==="platform"?"force-destroy":"early",amt:refund}),ledger:trimLedger([...evs.map(e=>({...e,balAfter:nb})),...p.ledger])}; });
      if(reason!=="platform") act.toast(T.tEarlyReturn(penalty.toFixed(2),refund.toFixed(2)));
    },
  };
@@ -2781,7 +2792,10 @@ function BillingPage({S,act,setS}){
   const gpuSum=_tl.filter(e=>e.msgKey==="lgGpu"||e.msgKey==="lgAmort").reduce((a,e)=>a+(e.amt||0),0);
   const stoSum=_tl.filter(e=>e.msgKey==="lgStoreStop").reduce((a,e)=>a+(e.amt||0),0);
   const bwSum=_tl.filter(e=>e.msgKey==="lgBw").reduce((a,e)=>a+(e.amt||0),0);
-  const tot=gpuSum+stoSum+bwSum;
+   const tot=gpuSum+stoSum+bwSum;
+   // 结案归档（2026-09-21 · 历史花销承载）：destroy/到期/退房/违约的归档快照（头部最新），订单维度聚合，不参与对账
+   const arch=S.instArchive||[];
+   const AR_REASON={destroy:"arReasonDestroy","force-destroy":"arReasonForce",expire:"arReasonExpire",early:"arReasonEarly",breach:"arReasonBreach","resv-cancel":"arReasonResvCancel"};
   const pct=v=>tot>0?Math.max(v/tot*100,2):0;
   // 当前余额：可用 vs 冻结（冻结=按量全局预留 + 订单 per-instance escrowHold，修正旧面板漏计订单冻结）
   const avail=+((S.balance)||0).toFixed(4);
@@ -2859,8 +2873,30 @@ function BillingPage({S,act,setS}){
         </tbody></table>
       </div>
       ):<p className="py-6 text-center text-[13px] text-[var(--color-text-faint)]">{T.ledEmpty}</p>}
+    </section>
+    {/* 已结案实例（历史订单维度承载）：实例销毁后按单可查（短ID/型号/SKU/时段/总花费/结案原因/退款） */}
+   <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:col-span-2">
+    <h3 className="mb-3 text-[15px] font-semibold">{T.blArchTitle}</h3>
+    {arch.length? (
+     <div className="grid gap-2">
+      {arch.map(a=>(
+       <div key={a.shortId+"@"+a.t1} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[13px]">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+         <span className="mono font-semibold text-[var(--color-text)]">{a.shortId}</span>
+         <span className="text-[var(--color-text-secondary)]">{a.gpu}</span>
+         <span className="rounded bg-[var(--color-border)]/30 px-1.5 py-px text-[11px] text-[var(--color-text-muted)]">{a.sku==="ondemand"?T.hmCtSkuOd:a.sku==="reserved"?T.hmCtSkuResv:T.hmCtSkuOrder}</span>
+         <span className="ml-auto rounded bg-[var(--color-warning)]/10 px-1.5 py-px text-[11.5px] text-[var(--color-warning)]">{T[AR_REASON[a.reason]]||a.reason}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] text-[var(--color-text-muted)]">
+         <span>{T.blArchPeriod} · {fmtDay(a.t0)} → {fmtDay(a.t1)}</span>
+         <span>{T.blArchSpent} · <span className="mono">{fmt$(a.spent||0)}</span></span>
+         {(a.amt||0)>0.0001 && <span>{T.blArchRefund} · <span className="mono text-[var(--color-success)]">+{fmt$(a.amt)}</span></span>}
+        </div>
+       </div>))}
+     </div>
+    ):<p className="py-4 text-center text-[13px] text-[var(--color-text-faint)]">{T.blArchNone}</p>}
    </section>
-  </div>
+   </div>
  </main>);
 }
 

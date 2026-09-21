@@ -76,7 +76,7 @@ const {useState, useEffect, useMemo, useRef} = React;
 const STORE_KEY="gpu-market-demo-v1";
 /* 与用户端 index.html 同口径的 ledger 裁剪（2026-09-20）：seed 行（hostV:3/seedTenant）豁免窗口裁剪，
    普通行最老先裁——离线直写合并若裸 slice(0,42) 会把用户端存档里的 seed 流水裁掉。 */
-const trimLedger=(a,cap=42)=>{ a=[...a]; let rest=a.filter(e=>!(e.hostV===3||e.seedTenant)).length; while(rest>cap){ const i=a.findLastIndex(e=>!(e.hostV===3||e.seedTenant)); if(i<0) break; a.splice(i,1); rest--; } return a; };
+const trimLedger=(a,cap=300)=>{ a=[...a]; let rest=a.filter(e=>!(e.hostV===3||e.seedTenant)).length; while(rest>cap){ const i=a.findLastIndex(e=>!(e.hostV===3||e.seedTenant)); if(i<0) break; a.splice(i,1); rest--; } return a; };
 const ACCOUNTS_KEY="gpu-market-accounts-v1";
 const ADMIN_KEY="gpu-market-admin-v1";
 const loadStore=()=>{ try{ return JSON.parse(localStorage.getItem(STORE_KEY))||null }catch(e){ return null } };
